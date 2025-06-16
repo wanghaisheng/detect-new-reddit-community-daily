@@ -1,52 +1,62 @@
 import praw
-import time
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
+import json
 import pytz
 
-# --- Reddit API credentials ---
+print("Scanning for new subreddits...")
+
 reddit = praw.Reddit(
-    client_id='YOUR_CLIENT_ID',
-    client_secret='YOUR_CLIENT_SECRET',
-    user_agent='NewSubTracker/0.1 by YOUR_USERNAME'
+    client_id=os.environ.get("REDDIT_CLIENT_ID"),
+    client_secret=os.environ.get("REDDIT_CLIENT_SECRET"),
+    user_agent=os.environ.get("REDDIT_USER_AGENT")
 )
 
-# --- Set up timezone and time window ---
-utc_now = datetime.utcnow().replace(tzinfo=pytz.UTC)
-one_day_ago = utc_now - timedelta(days=1)
+utc_now = datetime.utcnow().strftime('%Y-%m-%d')
+result_dir = "results"
+os.makedirs(result_dir, exist_ok=True)
 
-# --- Track seen subreddits ---
-seen_subreddits = set()
-new_subreddits = []
-
-# --- Create results directory if it doesn't exist ---
-os.makedirs("results", exist_ok=True)
-
-# --- Filename as today's date ---
-filename = f"results/{utc_now.strftime('%Y-%m-%d')}.txt"
-
-# --- Scan new posts from r/all ---
-print("Scanning for new subreddits...\n")
+found = {}
 
 for submission in reddit.subreddit("all").new(limit=1000):
-    subreddit = submission.subreddit
+    sub_name = submission.subreddit.display_name
+    created = submission.created_utc
+    if sub_name not in found:
+        found[sub_name] = created
 
-    if subreddit.display_name in seen_subreddits:
-        continue
+result_path = f"{result_dir}/{utc_now}.json"
+with open(result_path, "w") as f:
+    json.dump(found, f, indent=2)
 
-    seen_subreddits.add(subreddit.display_name)
+print(f"Saved {len(found)} unique subreddits to {result_path}")
+import praw
+import os
+from datetime import datetime
+import json
+import pytz
 
-    created_time = datetime.utcfromtimestamp(subreddit.created_utc).replace(tzinfo=pytz.UTC)
+print("Scanning for new subreddits...")
 
-    if created_time > one_day_ago:
-        line = f"r/{subreddit.display_name} | Created: {created_time.strftime('%Y-%m-%d %H:%M:%S')} UTC"
-        print(line)
-        new_subreddits.append(line)
+reddit = praw.Reddit(
+    client_id=os.environ.get("REDDIT_CLIENT_ID"),
+    client_secret=os.environ.get("REDDIT_CLIENT_SECRET"),
+    user_agent=os.environ.get("REDDIT_USER_AGENT")
+)
 
-# --- Save to file ---
-if new_subreddits:
-    with open(filename, "w", encoding="utf-8") as f:
-        f.write("\n".join(new_subreddits))
-    print(f"\nSaved {len(new_subreddits)} new subreddits to {filename}")
-else:
-    print("No new subreddits found in the last 24 hours.")
+utc_now = datetime.utcnow().strftime('%Y-%m-%d')
+result_dir = "results"
+os.makedirs(result_dir, exist_ok=True)
+
+found = {}
+
+for submission in reddit.subreddit("all").new(limit=1000):
+    sub_name = submission.subreddit.display_name
+    created = submission.created_utc
+    if sub_name not in found:
+        found[sub_name] = created
+
+result_path = f"{result_dir}/{utc_now}.json"
+with open(result_path, "w") as f:
+    json.dump(found, f, indent=2)
+
+print(f"Saved {len(found)} unique subreddits to {result_path}")
