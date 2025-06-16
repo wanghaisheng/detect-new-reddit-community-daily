@@ -18,6 +18,13 @@ s = Session()
 s.headers = {
     'User-Agent': user_agent(user_agent_name, my_script)
 }
+s.headers.update({
+    'User-Agent': user_agent(user_agent_name, my_script),
+    'Accept': 'application/json',
+    'Accept-Encoding': 'gzip, deflate',
+    'Connection': 'keep-alive',
+    'Referer': 'https://www.reddit.com'
+})
 
 header = ['display_name']
 results = []
