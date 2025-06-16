@@ -1,110 +1,69 @@
-import requests
-from bs4 import BeautifulSoup
-from urllib.parse import urlparse
-import time
-import json
 import os
+import requests
+import csv
+import time
 from datetime import datetime
+from requests_toolbelt import user_agent
+from requests import Session
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+# Get config from environment variables (set in GitHub Action workflow)
+user_agent_name = os.getenv('USER_AGENT_NAME', 'github-action-bot')
+script_name = os.getenv('SCRIPT_NAME', 'subreddit-tracker')
+script_vers = os.getenv('SCRIPT_VERSION', '0.0.1')
+times_run = int(os.getenv('PAGES_TO_CRAWL', '3'))  # default 3 pages
+
+my_script = f"{script_name}/{script_vers}"
+
+s = Session()
+s.headers = {
+    'User-Agent': user_agent(user_agent_name, my_script)
 }
 
-QUERY = 'site:reddit.com/r/ -site:reddit.com/r/all -site:reddit.com/r/popular -site:reddit.com/r/random -site:reddit.com/r/place'
-GOOGLE_SEARCH_URL = "https://www.google.com/search"
-RESULTS_DIR = "results"
+header = ['display_name']
+results = []
 
-def fetch_google_results(query, pages=2, delay=2):
-    subreddits = []
-    for page in range(pages):
-        params = {
-            "q": query,
-            "hl": "en",
-            "tbs": "qdr:d",  # results from past 24 hours
-            "start": page * 10
-        }
-        print(f"Fetching page {page + 1}...")
-        response = requests.get(GOOGLE_SEARCH_URL, headers=HEADERS, params=params)
-        soup = BeautifulSoup(response.text, "html.parser")
+after_token = None
 
-        for g in soup.select("div.g"):
-            link_tag = g.select_one("a")
-            if link_tag:
-                url = link_tag["href"]
-                parsed = urlparse(url)
-                if parsed.path.startswith("/r/") and "reddit.com/r/" in url:
-                    subreddits.append({
-                        "title": g.select_one("h3").text if g.select_one("h3") else "",
-                        "url": url
-                    })
-        time.sleep(delay)  # respectful delay
+for i in range(times_run):
+    url = 'https://www.reddit.com/subreddits/new.json?limit=100'
+    if after_token:
+        url += f'&after={after_token}'
 
-    return subreddits
+    response = s.get(url)
+    if response.status_code != 200:
+        print(f"Request failed with status {response.status_code}. Retrying...")
+        time.sleep(2)
+        continue
 
-def save_results(results):
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    date_str = datetime.utcnow().strftime("%Y-%m-%d")
-    file_path = os.path.join(RESULTS_DIR, f"{date_str}-google.json")
-    with open(file_path, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"Saved {len(results)} results to {file_path}")
+    data = response.json()
+    subs = data.get('data', {}).get('children', [])
+    after_token = data.get('data', {}).get('after', None)
 
-if __name__ == "__main__":
-    results = fetch_google_results(QUERY)
-    save_results(results)
-import requests
-from bs4 import BeautifulSoup
-from urllib.parse import urlparse
-import time
-import json
-import os
-from datetime import datetime
+    if not subs:
+        print("No more subreddits found.")
+        break
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-}
+    for sub in subs:
+        entry = {field: sub['data'].get(field, '') for field in header}
+        results.append(entry)
 
-QUERY = 'site:reddit.com/r/ -site:reddit.com/r/all -site:reddit.com/r/popular -site:reddit.com/r/random -site:reddit.com/r/place'
-GOOGLE_SEARCH_URL = "https://www.google.com/search"
-RESULTS_DIR = "results"
+    print(f"Page {i+1} crawled, after_token: {after_token}")
 
-def fetch_google_results(query, pages=2, delay=2):
-    subreddits = []
-    for page in range(pages):
-        params = {
-            "q": query,
-            "hl": "en",
-            "tbs": "qdr:d",  # results from past 24 hours
-            "start": page * 10
-        }
-        print(f"Fetching page {page + 1}...")
-        response = requests.get(GOOGLE_SEARCH_URL, headers=HEADERS, params=params)
-        soup = BeautifulSoup(response.text, "html.parser")
+    if not after_token:
+        print("Reached the end of the list.")
+        break
 
-        for g in soup.select("div.g"):
-            link_tag = g.select_one("a")
-            if link_tag:
-                url = link_tag["href"]
-                parsed = urlparse(url)
-                if parsed.path.startswith("/r/") and "reddit.com/r/" in url:
-                    subreddits.append({
-                        "title": g.select_one("h3").text if g.select_one("h3") else "",
-                        "url": url
-                    })
-        time.sleep(delay)  # respectful delay
+    time.sleep(1)  # polite delay
 
-    return subreddits
+date_str = datetime.utcnow().strftime('%Y-%m-%d')
+filename = f'results/new_subreddits_{date_str}.tsv'
 
-def save_results(results):
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    date_str = datetime.utcnow().strftime("%Y-%m-%d")
-    file_path = os.path.join(RESULTS_DIR, f"{date_str}-google.json")
-    with open(file_path, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"Saved {len(results)} results to {file_path}")
+# Ensure results folder exists
+os.makedirs('results', exist_ok=True)
 
-if __name__ == "__main__":
-    results = fetch_google_results(QUERY)
-    save_results(results)
+with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+    writer = csv.DictWriter(csvfile, fieldnames=header, delimiter='\t')
+    writer.writeheader()
+    writer.writerows(results)
+
+print(f"Saved {len(results)} subreddits to {filename}")
